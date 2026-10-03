@@ -412,26 +412,36 @@ register_legacy_bind() {
 register_runtime_binds() {
     [ "$HYPR_MODE" = "legacy" ] || return 0
 
-    # Only register dynamically when the config reload did not register the bind.
-    # Never unbind arbitrary user shortcuts.
-    binds_json="$(hyprctl binds -j 2>/dev/null || true)"
+    # If the config reload registered Miniland already, do not add duplicates.
+    binds_text="$(hyprctl binds 2>/dev/null || true)"
 
-    if ! printf '%s' "$binds_json" | jq -e --arg path "$INSTALL_BIN"         'any(.[]; (.dispatcher == "exec" and (.arg // "" | contains($path))))' >/dev/null 2>&1; then
-
+    if ! printf '%s\n' "$binds_text" | grep -Fq "$INSTALL_BIN"; then
         mods="$(printf '%s' "$minimize_bind" | cut -d'|' -f1 | tr ' ' '_')"
         key="$(printf '%s' "$minimize_bind" | cut -d'|' -f2)"
-        [ -n "$mods" ] && hyprctl keyword bind "$mods,$key,exec,$INSTALL_BIN minimize" >/dev/null 2>&1 ||
+
+        if [ -n "$mods" ]; then
+            hyprctl keyword bind "$mods,$key,exec,$INSTALL_BIN minimize" >/dev/null 2>&1
+        else
             hyprctl keyword bind ",$key,exec,$INSTALL_BIN minimize" >/dev/null 2>&1
+        fi
 
         mods="$(printf '%s' "$picker_bind" | cut -d'|' -f1 | tr ' ' '_')"
         key="$(printf '%s' "$picker_bind" | cut -d'|' -f2)"
-        [ -n "$mods" ] && hyprctl keyword bind "$mods,$key,exec,$INSTALL_BIN picker" >/dev/null 2>&1 ||
+
+        if [ -n "$mods" ]; then
+            hyprctl keyword bind "$mods,$key,exec,$INSTALL_BIN picker" >/dev/null 2>&1
+        else
             hyprctl keyword bind ",$key,exec,$INSTALL_BIN picker" >/dev/null 2>&1
+        fi
 
         mods="$(printf '%s' "$shelf_bind" | cut -d'|' -f1 | tr ' ' '_')"
         key="$(printf '%s' "$shelf_bind" | cut -d'|' -f2)"
-        [ -n "$mods" ] && hyprctl keyword bind "$mods,$key,exec,$INSTALL_BIN toggle-shelf" >/dev/null 2>&1 ||
+
+        if [ -n "$mods" ]; then
+            hyprctl keyword bind "$mods,$key,exec,$INSTALL_BIN toggle-shelf" >/dev/null 2>&1
+        else
             hyprctl keyword bind ",$key,exec,$INSTALL_BIN toggle-shelf" >/dev/null 2>&1
+        fi
     fi
 
     return 0
@@ -461,12 +471,12 @@ if command -v hyprctl >/dev/null 2>&1; then
         warn "Hyprland rejected the runtime Miniland binds."
     fi
 
-    binds_json="$(hyprctl binds -j 2>/dev/null || true)"
-    if printf '%s' "$binds_json" | jq -e --arg path "$INSTALL_BIN"         'any(.[]; (.dispatcher == "exec" and (.arg // "" | contains($path))))' >/dev/null 2>&1; then
-        say "Verified Miniland binds through hyprctl binds -j."
+    registered="$(hyprctl binds 2>/dev/null | grep -F "$INSTALL_BIN" || true)"
+    if [ -n "$registered" ]; then
+        say "Verified Miniland binds through hyprctl binds."
     else
-        warn "Miniland was not found in hyprctl binds -j."
-        printf '%s\n' 'Run: hyprctl binds -j | jq ''.[] | select(.dispatcher == "exec")'''
+        warn "Miniland was not found in hyprctl binds."
+        printf '%s\n' "Run: hyprctl binds | grep miniland"
     fi
 fi
 
