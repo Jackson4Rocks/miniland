@@ -1,0 +1,17 @@
+name: Shell syntax
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate POSIX shell syntax
+        run: |
+          sh -n install.sh
+          sh -n miniland
+          echo 'install.sh and miniland: syntax OK'
