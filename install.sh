@@ -411,13 +411,27 @@ register_legacy_bind() {
 register_runtime_binds() {
     [ "$HYPR_MODE" = "legacy" ] || return 0
 
-    hyprctl keyword unbind SUPER,M >/dev/null 2>&1 || true
-    hyprctl keyword unbind SUPER_SHIFT,N >/dev/null 2>&1 || true
-    hyprctl keyword unbind SUPER_ALT,M >/dev/null 2>&1 || true
+    # Only register dynamically when the config reload did not register the bind.
+    # Never unbind arbitrary user shortcuts.
+    binds_json="$(hyprctl binds -j 2>/dev/null || true)"
 
-    register_legacy_bind "$minimize_bind" minimize || return 1
-    register_legacy_bind "$picker_bind" picker || return 1
-    register_legacy_bind "$shelf_bind" toggle-shelf || return 1
+    if ! printf '%s' "$binds_json" | jq -e --arg path "$INSTALL_BIN"         'any(.[]; (.dispatcher == "exec" and (.arg // "" | contains($path))))' >/dev/null 2>&1; then
+
+        mods="$(printf '%s' "$minimize_bind" | cut -d'|' -f1 | tr ' ' '_')"
+        key="$(printf '%s' "$minimize_bind" | cut -d'|' -f2)"
+        [ -n "$mods" ] && hyprctl keyword bind "$mods,$key,exec,$INSTALL_BIN minimize" >/dev/null 2>&1 ||
+            hyprctl keyword bind ",$key,exec,$INSTALL_BIN minimize" >/dev/null 2>&1
+
+        mods="$(printf '%s' "$picker_bind" | cut -d'|' -f1 | tr ' ' '_')"
+        key="$(printf '%s' "$picker_bind" | cut -d'|' -f2)"
+        [ -n "$mods" ] && hyprctl keyword bind "$mods,$key,exec,$INSTALL_BIN picker" >/dev/null 2>&1 ||
+            hyprctl keyword bind ",$key,exec,$INSTALL_BIN picker" >/dev/null 2>&1
+
+        mods="$(printf '%s' "$shelf_bind" | cut -d'|' -f1 | tr ' ' '_')"
+        key="$(printf '%s' "$shelf_bind" | cut -d'|' -f2)"
+        [ -n "$mods" ] && hyprctl keyword bind "$mods,$key,exec,$INSTALL_BIN toggle-shelf" >/dev/null 2>&1 ||
+            hyprctl keyword bind ",$key,exec,$INSTALL_BIN toggle-shelf" >/dev/null 2>&1
+    fi
 
     return 0
 }
