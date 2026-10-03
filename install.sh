@@ -1,48 +1,34 @@
 #!/bin/sh
 set -eu
 
-REPO="https://github.com/Jackson4Rocks/miniland"
 RAW_BASE="https://raw.githubusercontent.com/Jackson4Rocks/miniland/main"
 BIN_DIR="$HOME/.local/bin"
 HYPR_DIR="$HOME/.config/hypr"
 HYPR_CONF="$HYPR_DIR/hyprland.conf"
 MINILAND_CONF="$HYPR_DIR/miniland.conf"
 INSTALL_BIN="$BIN_DIR/miniland"
+TTY="/dev/tty"
 
-say() {
-    printf '%s %s\n' '==>' "$*"
-}
+say() { printf '%s %s\n' '==>' "$*"; }
+warn() { printf '%s %s\n' 'warning:' "$*" >&2; }
+die() { printf '%s %s\n' 'error:' "$*" >&2; exit 1; }
 
-warn() {
-    printf '%s %s\n' 'warning:' "$*" >&2
-}
-
-die() {
-    printf '%s %s\n' 'error:' "$*" >&2
-    exit 1
-}
-
-say "Welcome to Miniland."
-printf '%s\n' "This guided installer installs Miniland for your user account."
-printf '%s\n\n' "No root access is required."
-
+[ -r "$TTY" ] || die "an interactive terminal is required for keybind setup"
 command -v jq >/dev/null 2>&1 || die "jq is required. Install jq and run this installer again."
 
-normalize_token() {
-    token="$1"
-    token="$(printf '%s' "$token" | tr '[:lower:]' '[:upper:]')"
+read_tty() { IFS= read -r "$@" < "$TTY"; }
+prompt() { printf '%s' "$*" > "$TTY"; }
 
+normalize() {
+    token="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
     case "$token" in
-        CONTROL) printf '%s' 'CTRL' ;;
-        CTRL) printf '%s' 'CTRL' ;;
-        META|WINDOWS|WIN|GUI|MOD4) printf '%s' 'SUPER' ;;
-        ESC|ESCAPE) printf '%s' 'ESCAPE' ;;
-        ENTER) printf '%s' 'RETURN' ;;
-        SPACE) printf '%s' 'SPACE' ;;
-        BACKSPACE) printf '%s' 'BACKSPACE' ;;
-        TAB) printf '%s' 'TAB' ;;
-        DELETE|DEL) printf '%s' 'DELETE' ;;
-        *) printf '%s' "$token" ;;
+        CONTROL) echo CTRL ;;
+        CTRL) echo CTRL ;;
+        META|WINDOWS|WIN|GUI|MOD4) echo SUPER ;;
+        ESC|ESCAPE) echo ESCAPE ;;
+        ENTER) echo RETURN ;;
+        DELETE|DEL) echo DELETE ;;
+        *) echo "$token" ;;
     esac
 }
 
@@ -53,9 +39,7 @@ parse_bind() {
     set -- $raw
     IFS="$oldifs"
 
-    count="$#"
-    [ "$count" -gt 0 ] || return 1
-
+    [ "$#" -ge 1 ] || return 1
     key=""
     mods=""
     i=1
@@ -63,63 +47,67 @@ parse_bind() {
     for part in "$@"; do
         part="$(printf '%s' "$part" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
         [ -n "$part" ] || return 1
-        token="$(normalize_token "$part")"
+        token="$(normalize "$part")"
 
-        if [ "$i" -eq "$count" ]; then
+        if [ "$i" -eq "$#" ]; then
             key="$token"
         else
             case "$token" in
                 SUPER|SHIFT|CTRL|ALT|ALTGR|CAPSLOCK|HYPER)
-                    if [ -n "$mods" ]; then
-                        mods="$mods $token"
-                    else
-                        mods="$token"
-                    fi
+                    [ -n "$mods" ] && mods="$mods $token" || mods="$token"
                     ;;
                 *) return 1 ;;
             esac
         fi
-
         i=$((i + 1))
     done
 
     [ -n "$key" ] || return 1
-    printf '%s|%s' "$mods" "$key"
+    printf '%s|%s\n' "$mods" "$key"
+}
+
+format_bind() {
+    mods="$(printf '%s' "$1" | cut -d'|' -f1)"
+    key="$(printf '%s' "$1" | cut -d'|' -f2)"
+    [ -n "$mods" ] && printf '%s + %s' "$(printf '%s' "$mods" | sed 's/ / + /g')" "$key" || printf '%s' "$key"
 }
 
 ask_bind() {
-    prompt="$1"
+    label="$1"
     default="$2"
 
     while :; do
-        printf '%s' "$prompt"
-        IFS= read -r answer || answer=""
+        prompt "$label [$(format_bind "$default")]: "
+        read_tty answer || answer=""
+        [ -z "$answer" ] && { printf '%s\n' "$default"; return; }
 
-        if [ -z "$answer" ]; then
-            printf '%s\n' "$default"
-            return 0
-        fi
+        parsed="$(parse_bind "$answer" 2>/dev/null || true)"
+        [ -n "$parsed" ] && { printf '%s\n' "$parsed"; return; }
 
-        if parsed="$(parse_bind "$answer")"; then
-            printf '%s\n' "$parsed"
-            return 0
-        fi
-
-        warn "Invalid keybind. Try: SUPER + M or SUPER + SHIFT + M"
+        warn "Invalid keybind. Example: SUPER + M or SUPER + SHIFT + M"
     done
 }
 
-binding_line() {
-    parsed="$1"
-    command="$2"
+extract_bind() {
+    action="$1"
+    line="$(grep -E "^[[:space:]]*bind[a-z]*[[:space:]]*=" "$MINILAND_CONF" 2>/dev/null |
+        grep -F "exec, miniland $action" | tail -n 1 || true)"
+    [ -n "$line" ] || return 1
 
-    mods="$(printf '%s' "$parsed" | cut -d'|' -f1)"
-    key="$(printf '%s' "$parsed" | cut -d'|' -f2)"
+    mods="$(printf '%s' "$line" | cut -d',' -f1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    key="$(printf '%s' "$line" | cut -d',' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    [ -n "$key" ] || return 1
+    printf '%s|%s\n' "$mods" "$key"
+}
+
+binding_line() {
+    mods="$(printf '%s' "$1" | cut -d'|' -f1)"
+    key="$(printf '%s' "$1" | cut -d'|' -f2)"
 
     if [ -n "$mods" ]; then
-        printf 'bind = %s, %s, exec, miniland %s\n' "$mods" "$key" "$command"
+        printf 'bind = %s, %s, exec, miniland %s\n' "$mods" "$key" "$2"
     else
-        printf 'bind = , %s, exec, miniland %s\n' "$key" "$command"
+        printf 'bind = , %s, exec, miniland %s\n' "$key" "$2"
     fi
 }
 
@@ -135,13 +123,83 @@ download_miniland() {
     fi
 }
 
-printf '%s\n' "Keybind format: SUPER + M"
-printf '%s\n' "Multiple modifiers work too: SUPER + SHIFT + M"
-printf '%s\n\n' "Press Enter to accept the shown default."
+say "Welcome to Miniland."
+printf '%s\n' "This guided installer installs Miniland for your user account."
+printf '%s\n\n' "No root access is required."
 
-minimize_bind="$(ask_bind 'Minimize focused window [SUPER + M]: ' 'SUPER|M')"
-restore_bind="$(ask_bind 'Restore last minimized window [SUPER + SHIFT + M]: ' 'SUPER SHIFT|M')"
-shelf_bind="$(ask_bind 'Show/hide Miniland shelf [SUPER + ALT + M]: ' 'SUPER ALT|M')"
+minimize_bind="SUPER|M"
+picker_bind="SUPER SHIFT|M"
+shelf_bind="SUPER ALT|M"
+keep=0
+
+if [ -f "$MINILAND_CONF" ]; then
+    old_minimize="$(extract_bind minimize || true)"
+    old_picker="$(extract_bind picker || true)"
+    old_shelf="$(extract_bind toggle-shelf || true)"
+
+    [ -n "$old_minimize" ] || old_minimize="$minimize_bind"
+    [ -n "$old_picker" ] || old_picker="$picker_bind"
+    [ -n "$old_shelf" ] || old_shelf="$shelf_bind"
+
+    say "Existing Miniland configuration found."
+    prompt "Keep existing keybinds, or change them? [K/c]: "
+    read_tty choice || choice="K"
+
+    case "$(printf '%s' "$choice" | tr '[:lower:]' '[:upper:]')" in
+        K|"")
+            minimize_bind="$old_minimize"
+            picker_bind="$old_picker"
+            shelf_bind="$old_shelf"
+            keep=1
+            ;;
+        C)
+            minimize_bind="$old_minimize"
+            picker_bind="$old_picker"
+            shelf_bind="$old_shelf"
+            ;;
+        *)
+            warn "Unknown choice; keeping existing keybinds."
+            minimize_bind="$old_minimize"
+            picker_bind="$old_picker"
+            shelf_bind="$old_shelf"
+            keep=1
+            ;;
+    esac
+fi
+
+if [ "$keep" -eq 0 ]; then
+    printf '\n%s\n' "Keybind setup"
+    printf '%s\n' "Enter combinations like: SUPER + M"
+    printf '%s\n\n' "Press Enter to accept the shown default."
+
+    minimize_bind="$(ask_bind "Minimize focused window" "$minimize_bind")"
+    picker_bind="$(ask_bind "Open Miniland picker" "$picker_bind")"
+    shelf_bind="$(ask_bind "Show/hide Miniland shelf" "$shelf_bind")"
+
+    if [ "$minimize_bind" = "$picker_bind" ] ||
+       [ "$minimize_bind" = "$shelf_bind" ] ||
+       [ "$picker_bind" = "$shelf_bind" ]; then
+        die "two Miniland actions use the same keybind; please choose different keybinds"
+    fi
+
+    printf '\n%s\n' "Selected bindings:"
+    printf '  %-8s %s\n' "Minimize" "$(format_bind "$minimize_bind")"
+    printf '  %-8s %s\n' "Picker" "$(format_bind "$picker_bind")"
+    printf '  %-8s %s\n' "Shelf" "$(format_bind "$shelf_bind")"
+
+    prompt "Apply these bindings? [Y/change/cancel]: "
+    read_tty confirm || confirm="Y"
+
+    case "$(printf '%s' "$confirm" | tr '[:lower:]' '[:upper:]')" in
+        Y|"") ;;
+        CHANGE)
+            minimize_bind="$(ask_bind "Minimize focused window" "$minimize_bind")"
+            picker_bind="$(ask_bind "Open Miniland picker" "$picker_bind")"
+            shelf_bind="$(ask_bind "Show/hide Miniland shelf" "$shelf_bind")"
+            ;;
+        *) die "installation cancelled" ;;
+    esac
+fi
 
 mkdir -p "$BIN_DIR" "$HYPR_DIR"
 
@@ -149,18 +207,20 @@ say "Installing $INSTALL_BIN"
 download_miniland > "$INSTALL_BIN"
 chmod 755 "$INSTALL_BIN"
 
-cat > "$MINILAND_CONF" <<EOF
+if [ "$keep" -eq 0 ]; then
+    cat > "$MINILAND_CONF" <<EOF
 # Miniland keybindings
-# Generated by $REPO/install.sh
+# Generated by install.sh
 
-$(binding_line "$minimize_bind" "minimize")
-$(binding_line "$restore_bind" "restore-last")
-$(binding_line "$shelf_bind" "toggle-shelf")
+$(binding_line "$minimize_bind" minimize)
+$(binding_line "$picker_bind" picker)
+$(binding_line "$shelf_bind" toggle-shelf)
 EOF
+fi
 
 if [ -f "$HYPR_CONF" ]; then
-    if ! grep -Fq 'source = ~/.config/hypr/miniland.conf' "$HYPR_CONF"; then
-        printf '\n# Miniland\nsource = ~/.config/hypr/miniland.conf\n' >> "$HYPR_CONF"
+    if ! grep -Fq "source = $MINILAND_CONF" "$HYPR_CONF"; then
+        printf '\n# Miniland\nsource = %s\n' "$MINILAND_CONF" >> "$HYPR_CONF"
         say "Added Miniland to $HYPR_CONF"
     else
         say "Miniland is already sourced by Hyprland."
@@ -168,26 +228,34 @@ if [ -f "$HYPR_CONF" ]; then
 else
     cat > "$HYPR_CONF" <<EOF
 # Hyprland configuration
-source = ~/.config/hypr/miniland.conf
+source = $MINILAND_CONF
 EOF
-    say "Created $HYPR_CONF"
+    warn "Hyprland config was not found, so $HYPR_CONF was created."
+fi
+
+if command -v hyprctl >/dev/null 2>&1; then
+    if hyprctl reload >/dev/null 2>&1; then
+        say "Hyprland reloaded."
+    else
+        warn "Hyprland could not be reloaded automatically."
+    fi
 fi
 
 printf '\n'
 say "Miniland is installed."
 printf '%s\n' "Executable: $INSTALL_BIN"
 printf '%s\n' "Config:     $MINILAND_CONF"
-printf '%s\n' "Bindings:"
-binding_line "$minimize_bind" "minimize"
-binding_line "$restore_bind" "restore-last"
-binding_line "$shelf_bind" "toggle-shelf"
+printf '%s\n' "Minimize:   $(format_bind "$minimize_bind")"
+printf '%s\n' "Picker:     $(format_bind "$picker_bind")"
+printf '%s\n' "Shelf:      $(format_bind "$shelf_bind")"
 
-if command -v hyprctl >/dev/null 2>&1; then
-    if hyprctl reload >/dev/null 2>&1; then
-        say "Hyprland reloaded."
-    else
-        warn "Hyprland could not be reloaded automatically. Reload it manually."
-    fi
+if command -v fuzzel >/dev/null 2>&1 ||
+   command -v wofi >/dev/null 2>&1 ||
+   command -v rofi >/dev/null 2>&1; then
+    say "Graphical picker backend detected."
+else
+    warn "No graphical picker backend found."
+    printf '%s\n' "Install one of: fuzzel, wofi, or rofi-wayland/rofi."
 fi
 
-printf '\n%s\n' "Try: miniland list"
+printf '%s\n' "Tip: run 'miniland picker' to open the minimized-window picker."
