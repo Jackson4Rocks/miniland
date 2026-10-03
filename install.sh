@@ -480,7 +480,7 @@ if command -v hyprctl >/dev/null 2>&1; then
         if [ "$HYPR_MODE" = "lua" ]; then
             printf '%s\n' "Lua config: $MINILAND_LUA"
             printf '%s\n' "Required by:  $HYPR_CONF"
-            printf '%s\n' "Try: hyprctl binds -j | jq '.[] | select(.description | contains("Miniland"))'"
+            printf '%s\n' "Try: hyprctl binds -j | grep Miniland"
         else
             printf '%s\n' "Run: hyprctl binds | grep miniland"
         fi
