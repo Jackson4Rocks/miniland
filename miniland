@@ -7,6 +7,11 @@ SPECIAL_WORKSPACE="special:miniland"
 
 die() { printf '%s\n' "miniland: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"; }
+notify() {
+    command -v notify-send >/dev/null 2>&1 &&
+        notify-send -a Miniland "Miniland" "$1" >/dev/null 2>&1 ||
+        true
+}
 
 need hyprctl
 need jq
@@ -185,30 +190,33 @@ picker_entries() {
 picker() {
     prune
     count="$(jq 'length' "$STATE_FILE")"
-    [ "$count" -gt 0 ] || {
-        printf '%s\n' "No minimized windows."
+
+    if [ "$count" -eq 0 ]; then
+        notify "No minimized windows."
         return 0
-    }
+    fi
 
     backend="$(picker_backend 2>/dev/null || true)"
-    [ -n "$backend" ] ||
-        die "no graphical picker found. Install fuzzel, wofi, or rofi-wayland/rofi."
+    if [ -z "$backend" ]; then
+        notify "Install fuzzel, wofi, or rofi-wayland/rofi for the graphical picker."
+        die "no graphical picker found"
+    fi
 
     entries="$(picker_entries)"
 
     case "$backend" in
         fuzzel)
-            selected="$(printf '%s\n' "$entries" |
+            selected_index="$(printf '%s\n' "$entries" |
                 fuzzel --dmenu \
                     --prompt 'Miniland: ' \
                     --lines 12 \
                     --minimal-lines \
                     --with-nth=2.. \
+                    --index \
                     2>/dev/null || true)"
 
-            [ -n "$selected" ] || return 0
-            index="$(printf '%s\n' "$entries" |
-                awk -v s="$selected" '$0 == s {print NR; exit}')"
+            [ -n "$selected_index" ] || return 0
+            index=$((selected_index + 1))
             ;;
         wofi)
             selected="$(printf '%s\n' "$entries" |
@@ -252,10 +260,10 @@ list_windows() {
     prune
     count="$(jq 'length' "$STATE_FILE")"
 
-    [ "$count" -gt 0 ] || {
+    if [ "$count" -eq 0 ]; then
         printf '%s\n' "No minimized windows."
         return 0
-    }
+    fi
 
     jq -r '
       to_entries[] |
