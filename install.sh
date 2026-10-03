@@ -466,9 +466,8 @@ if command -v hyprctl >/dev/null 2>&1; then
         say "Verified Miniland binds through hyprctl binds -j."
     else
         warn "Miniland was not found in hyprctl binds -j."
-        printf '%s
-' "Run: hyprctl binds -j | jq ''.[] | select(.dispatcher == \"exec\")''"
-    fifi
+        printf '%s\n' 'Run: hyprctl binds -j | jq ''.[] | select(.dispatcher == "exec")'''
+    fi
 fi
 
 printf '\n'
