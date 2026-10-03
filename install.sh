@@ -13,17 +13,6 @@ HYPR_CONF="$HYPR_DIR/hyprland.conf"
 HYPR_CONFIG_VALUE="$(printenv HYPRLAND_CONFIG 2>/dev/null || true)"
 [ -n "$HYPR_CONFIG_VALUE" ] && HYPR_CONF="$HYPR_CONFIG_VALUE"
 
-HYPR_MODE="legacy"
-case "$HYPR_CONF" in
-    *.lua) HYPR_MODE="lua" ;;
-esac
-
-if [ -z "$HYPR_CONFIG_VALUE" ] &&
-   [ ! -f "$HYPR_DIR/hyprland.conf" ] &&
-   [ -f "$HYPR_DIR/hyprland.lua" ]; then
-    HYPR_CONF="$HYPR_DIR/hyprland.lua"
-    HYPR_MODE="lua"
-fi
 MINILAND_CONF="$HYPR_DIR/miniland.conf"
 MINILAND_LUA="$HYPR_DIR/miniland.lua"
 INSTALL_BIN="$BIN_DIR/miniland"
@@ -144,6 +133,44 @@ ask_bind() {
     done
 }
 
+detect_hypr_mode() {
+    HYPR_MODE="legacy"
+
+    case "$HYPR_CONF" in
+        *.lua)
+            HYPR_MODE="lua"
+            return 0
+            ;;
+    esac
+
+    if command -v hyprctl >/dev/null 2>&1; then
+        version_line="$(hyprctl version 2>/dev/null | sed -n '1p' || true)"
+        version_numbers="$(printf '%s\n' "$version_line" |
+            sed -n 's/^Hyprland[[:space:]]\+\([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2/p')"
+
+        if [ -n "$version_numbers" ]; then
+            set -- $version_numbers
+            major="$1"
+            minor="$2"
+
+            if [ "$major" -gt 0 ] ||
+               [ "$major" -eq 0 ] && [ "$minor" -ge 55 ]; then
+                HYPR_MODE="lua"
+                return 0
+            fi
+        fi
+    fi
+
+    if [ -z "$HYPR_CONFIG_VALUE" ] &&
+       [ ! -f "$HYPR_DIR/hyprland.conf" ] &&
+       [ -f "$HYPR_DIR/hyprland.lua" ]; then
+        HYPR_CONF="$HYPR_DIR/hyprland.lua"
+        HYPR_MODE="lua"
+    fi
+}
+
+detect_hypr_mode
+
 config_for_existing() {
     if [ "$HYPR_MODE" = "lua" ]; then
         printf '%s\n' "$MINILAND_LUA"
@@ -217,8 +244,7 @@ lua_binding_line() {
         combo="$key"
     fi
 
-    printf 'hl.bind("%s", hl.dsp.exec_cmd("%s %s"), { description = "%s" })\n' \
-        "$combo" "$INSTALL_BIN" "$command" "$description"
+    printf 'hl.bind("%s", hl.dsp.exec_cmd("%s %s"), { description = "%s" })\n'         "$combo" "$INSTALL_BIN" "$command" "$description"
 }
 
 write_miniland_config() {
@@ -240,6 +266,56 @@ $(legacy_binding_line "$minimize_bind" minimize)
 $(legacy_binding_line "$picker_bind" picker)
 $(legacy_binding_line "$shelf_bind" toggle-shelf)
 EOF
+    fi
+}
+
+cleanup_legacy_lua_sources() {
+    [ "$HYPR_MODE" = "lua" ] || return 0
+    [ -f "$HYPR_CONF" ] || return 0
+
+    tmp="$HYPR_CONF.miniland.tmp"
+    sed -E '/^[[:space:]]*source[[:space:]]*=.*miniland\.conf[[:space:]]*$/d'         "$HYPR_CONF" > "$tmp"
+
+    if cmp -s "$HYPR_CONF" "$tmp"; then
+        rm -f "$tmp"
+        return 0
+    fi
+
+    mv "$tmp" "$HYPR_CONF"
+    say "Removed old Miniland legacy source lines from $HYPR_CONF"
+}
+
+ensure_lua_require() {
+    if [ -f "$HYPR_CONF" ]; then
+        if grep -Eq '^[[:space:]]*require[[:space:]]*\([[:space:]]*["'"']miniland["'"'][[:space:]]*\)[[:space:]]*$' "$HYPR_CONF"; then
+            say "Miniland is already required by Hyprland."
+        else
+            printf '\n-- Miniland\nrequire("miniland")\n' >> "$HYPR_CONF"
+            say "Added require("miniland") to $HYPR_CONF"
+        fi
+    else
+        cat > "$HYPR_CONF" <<EOF
+-- Hyprland Lua configuration
+require("miniland")
+EOF
+        warn "Hyprland Lua config was not found, so $HYPR_CONF was created."
+    fi
+}
+
+ensure_legacy_source() {
+    if [ -f "$HYPR_CONF" ]; then
+        if grep -Eq '^[[:space:]]*source[[:space:]]*=[[:space:]]*("?'"'"')?'$(printf '%s' "$MINILAND_CONF" | sed 's/[.[\*^$()+?{|]/\\&/g')'[[:space:]]*("?'"'"')?$' "$HYPR_CONF"; then
+            say "Miniland is already sourced by Hyprland."
+        else
+            printf '\n# Miniland\nsource = %s\n' "$MINILAND_CONF" >> "$HYPR_CONF"
+            say "Added Miniland to $HYPR_CONF"
+        fi
+    else
+        cat > "$HYPR_CONF" <<EOF
+# Hyprland configuration
+source = $MINILAND_CONF
+EOF
+        warn "Hyprland config was not found, so $HYPR_CONF was created."
     fi
 }
 
@@ -265,6 +341,9 @@ download_miniland() {
 say "Welcome to Miniland."
 printf '%s\n' "This guided installer installs Miniland for your user account."
 printf '%s\n' "Detected Hyprland config mode: $HYPR_MODE"
+if [ "$HYPR_MODE" = "lua" ] && [ "$HYPR_CONF" != "$HYPR_DIR/hyprland.lua" ]; then
+    printf '%s\n' "Using Lua parser with config file: $HYPR_CONF"
+fi
 printf '%s\n\n' "No root access is required."
 
 minimize_bind="SUPER|M"
@@ -274,8 +353,6 @@ keep=0
 choice="C"
 
 EXISTING_CONFIG="$(config_for_existing)"
-
-choice="C"
 
 if [ -f "$EXISTING_CONFIG" ]; then
     old_minimize="$(extract_bind minimize || true)"
@@ -364,88 +441,11 @@ chmod 755 "$INSTALL_BIN"
 write_miniland_config
 
 if [ "$HYPR_MODE" = "lua" ]; then
-    if [ -f "$HYPR_CONF" ]; then
-        if ! grep -Fq 'require("miniland")' "$HYPR_CONF"; then
-            printf '\n-- Miniland\nrequire("miniland")\n' >> "$HYPR_CONF"
-            say "Added require(\"miniland\") to $HYPR_CONF"
-        else
-            say "Miniland is already required by Hyprland."
-        fi
-    else
-        cat > "$HYPR_CONF" <<EOF
--- Hyprland Lua configuration
-require("miniland")
-EOF
-        warn "Hyprland Lua config was not found, so $HYPR_CONF was created."
-    fi
+    cleanup_legacy_lua_sources
+    ensure_lua_require
 else
-    if [ -f "$HYPR_CONF" ]; then
-        if ! grep -Fq "source = $MINILAND_CONF" "$HYPR_CONF"; then
-            printf '\n# Miniland\nsource = %s\n' "$MINILAND_CONF" >> "$HYPR_CONF"
-            say "Added Miniland to $HYPR_CONF"
-        else
-            say "Miniland is already sourced by Hyprland."
-        fi
-    else
-        cat > "$HYPR_CONF" <<EOF
-# Hyprland configuration
-source = $MINILAND_CONF
-EOF
-        warn "Hyprland config was not found, so $HYPR_CONF was created."
-    fi
+    ensure_legacy_source
 fi
-
-register_legacy_bind() {
-    parsed="$1"
-    command_name="$2"
-
-    mods="$(printf '%s' "$parsed" | cut -d'|' -f1 | tr ' ' '_')"
-    key="$(printf '%s' "$parsed" | cut -d'|' -f2)"
-
-    if [ -n "$mods" ]; then
-        hyprctl keyword bind "$mods,$key,exec,$INSTALL_BIN $command_name" >/dev/null 2>&1
-    else
-        hyprctl keyword bind ",$key,exec,$INSTALL_BIN $command_name" >/dev/null 2>&1
-    fi
-}
-
-register_runtime_binds() {
-    [ "$HYPR_MODE" = "legacy" ] || return 0
-
-    # If the config reload registered Miniland already, do not add duplicates.
-    binds_text="$(hyprctl binds 2>/dev/null || true)"
-
-    if ! printf '%s\n' "$binds_text" | grep -Fq "$INSTALL_BIN"; then
-        mods="$(printf '%s' "$minimize_bind" | cut -d'|' -f1 | tr ' ' '_')"
-        key="$(printf '%s' "$minimize_bind" | cut -d'|' -f2)"
-
-        if [ -n "$mods" ]; then
-            hyprctl keyword bind "$mods,$key,exec,$INSTALL_BIN minimize" >/dev/null 2>&1
-        else
-            hyprctl keyword bind ",$key,exec,$INSTALL_BIN minimize" >/dev/null 2>&1
-        fi
-
-        mods="$(printf '%s' "$picker_bind" | cut -d'|' -f1 | tr ' ' '_')"
-        key="$(printf '%s' "$picker_bind" | cut -d'|' -f2)"
-
-        if [ -n "$mods" ]; then
-            hyprctl keyword bind "$mods,$key,exec,$INSTALL_BIN picker" >/dev/null 2>&1
-        else
-            hyprctl keyword bind ",$key,exec,$INSTALL_BIN picker" >/dev/null 2>&1
-        fi
-
-        mods="$(printf '%s' "$shelf_bind" | cut -d'|' -f1 | tr ' ' '_')"
-        key="$(printf '%s' "$shelf_bind" | cut -d'|' -f2)"
-
-        if [ -n "$mods" ]; then
-            hyprctl keyword bind "$mods,$key,exec,$INSTALL_BIN toggle-shelf" >/dev/null 2>&1
-        else
-            hyprctl keyword bind ",$key,exec,$INSTALL_BIN toggle-shelf" >/dev/null 2>&1
-        fi
-    fi
-
-    return 0
-}
 
 if command -v hyprctl >/dev/null 2>&1; then
     reload_output="$(hyprctl reload 2>&1 || true)"
@@ -465,18 +465,25 @@ if command -v hyprctl >/dev/null 2>&1; then
         printf '%s\n' "$errors" >&2
     fi
 
-    if register_runtime_binds; then
-        say "Registered Miniland binds directly with Hyprland."
+    if [ "$HYPR_MODE" = "legacy" ]; then
+        registered="$(hyprctl binds 2>/dev/null | grep -F "$INSTALL_BIN" || true)"
     else
-        warn "Hyprland rejected the runtime Miniland binds."
+        registered="$(hyprctl binds 2>/dev/null |
+            grep -F -e "Minimize focused window" -e "Open Miniland picker" -e "Show or hide Miniland shelf" |
+            grep -F "$INSTALL_BIN" || true)"
     fi
 
-    registered="$(hyprctl binds 2>/dev/null | grep -F "$INSTALL_BIN" || true)"
     if [ -n "$registered" ]; then
         say "Verified Miniland binds through hyprctl binds."
     else
-        warn "Miniland was not found in hyprctl binds."
-        printf '%s\n' "Run: hyprctl binds | grep miniland"
+        warn "Miniland binds were not found in hyprctl binds after reload."
+        if [ "$HYPR_MODE" = "lua" ]; then
+            printf '%s\n' "Lua config: $MINILAND_LUA"
+            printf '%s\n' "Required by:  $HYPR_CONF"
+            printf '%s\n' "Try: hyprctl binds -j | jq '.[] | select(.description | test("Miniland"))'"
+        else
+            printf '%s\n' "Run: hyprctl binds | grep miniland"
+        fi
     fi
 fi
 
