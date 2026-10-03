@@ -18,11 +18,12 @@ case "$HYPR_CONF" in
     *.lua) HYPR_MODE="lua" ;;
 esac
 
-if [ -z "$HYPR_CONFIG_VALUE" ] && [ -f "$HYPR_DIR/hyprland.lua" ]; then
+if [ -z "$HYPR_CONFIG_VALUE" ] &&
+   [ ! -f "$HYPR_DIR/hyprland.conf" ] &&
+   [ -f "$HYPR_DIR/hyprland.lua" ]; then
     HYPR_CONF="$HYPR_DIR/hyprland.lua"
     HYPR_MODE="lua"
 fi
-
 MINILAND_CONF="$HYPR_DIR/miniland.conf"
 MINILAND_LUA="$HYPR_DIR/miniland.lua"
 INSTALL_BIN="$BIN_DIR/miniland"
@@ -273,6 +274,8 @@ keep=0
 
 EXISTING_CONFIG="$(config_for_existing)"
 
+choice="C"
+
 if [ -f "$EXISTING_CONFIG" ]; then
     old_minimize="$(extract_bind minimize || true)"
     old_picker="$(extract_bind picker || true)"
@@ -283,32 +286,37 @@ if [ -f "$EXISTING_CONFIG" ]; then
     [ -n "$old_shelf" ] || old_shelf="$shelf_bind"
 
     say "Existing Miniland configuration found."
-    prompt "Keep existing keybinds, or change them? [K/c]: "
-    read_tty choice || choice="K"
+    prompt "Use recommended defaults (picker = SUPER + SHIFT + N), keep current, or customize? [D/k/c]: "
+    read_tty choice || choice="D"
 
     case "$(printf '%s' "$choice" | tr '[:lower:]' '[:upper:]')" in
-        K|"")
+        D|"")
+            minimize_bind="SUPER|M"
+            picker_bind="SUPER SHIFT|N"
+            shelf_bind="SUPER ALT|M"
+            keep=0
+            choice="D"
+            ;;
+        K)
             minimize_bind="$old_minimize"
             picker_bind="$old_picker"
             shelf_bind="$old_shelf"
             keep=1
             ;;
         C)
-            minimize_bind="$old_minimize"
-            picker_bind="$old_picker"
-            shelf_bind="$old_shelf"
+            minimize_bind="SUPER|M"
+            picker_bind="SUPER SHIFT|N"
+            shelf_bind="SUPER ALT|M"
+            keep=0
+            choice="C"
             ;;
         *)
-            warn "Unknown choice; keeping existing keybinds."
-            minimize_bind="$old_minimize"
-            picker_bind="$old_picker"
-            shelf_bind="$old_shelf"
-            keep=1
+            die "unknown choice; use D, K, or C"
             ;;
     esac
 fi
 
-if [ "$keep" -eq 0 ]; then
+if [ "$keep" -eq 0 ] && [ "$choice" = "C" ]; then
     printf '\n%s\n' "Keybind setup"
     printf '%s\n' "Enter combinations like: SUPER + M"
     printf '%s\n\n' "Press Enter to accept the shown default."
