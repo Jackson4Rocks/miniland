@@ -193,6 +193,8 @@ picker() {
 
     if [ "$count" -eq 0 ]; then
         notify "No minimized windows."
+        printf '%s\n' "No minimized windows." >&2
+        printf '%s\n' "Use miniland minimize (or your minimize keybind) on a window first." >&2
         return 0
     fi
 
@@ -211,7 +213,7 @@ picker() {
                     --prompt 'Miniland: ' \
                     --lines 12 \
                     --minimal-lines \
-                    --with-nth=2.. \
+                    --with-nth='{2..}' \
                     --index \
                     2>/dev/null || true)"
 
