@@ -12,37 +12,38 @@ Or run the installer directly:
 
     curl -fsSL https://raw.githubusercontent.com/Jackson4Rocks/miniland/main/install.sh | sh
 
-The installer is interactive and lets you choose the keybinds. Type combinations naturally:
+The installer detects the Hyprland configuration style it is running with:
 
-    SUPER + M
-    SUPER + SHIFT + M
-    CTRL + ALT + M
+- Legacy Hyprland 0.54 and earlier style: `hyprland.conf` / `bind = ...`
+- Hyprland 0.55+ Lua style: `hyprland.lua` / `hl.bind(...)`
 
-Defaults:
+### Recommended defaults
 
-- Minimize: SUPER + M
-- Picker: SUPER + SHIFT + M
-- Shelf: SUPER + ALT + M
+- Minimize: `SUPER + M`
+- Picker: `SUPER + SHIFT + N`
+- Shelf: `SUPER + ALT + M`
 
-Run the installer again to change them.
+During setup you can keep your current bindings, use the recommended defaults, or customize them.
+
+Bindings are written using the syntax required by the detected Hyprland config. In legacy config, combined modifiers are emitted as `SUPER_SHIFT`, not `SUPER SHIFT`.
 
 ## Miniland picker
 
-Press the picker binding or run:
+Press `SUPER + SHIFT + N` by default, or run:
 
     miniland picker
 
-The picker opens a searchable graphical menu containing every minimized window. Each entry includes the application/class, window title, PID, and original workspace.
+The picker opens a searchable graphical menu containing every minimized window. Entries include the application/class, title, PID, and original workspace.
 
-Select a window and Miniland moves that exact window to the currently active Hyprland workspace and focuses it.
+Selecting a window restores that exact window onto the currently active Hyprland workspace and focuses it.
 
-The menu is scrollable for large lists and uses the first available backend:
+The picker is scrollable for large lists and automatically uses the first available backend:
 
 1. fuzzel
 2. wofi
 3. rofi / rofi-wayland
 
-Install one of those separately when no picker backend is detected.
+Fuzzel is used in dmenu mode with a bounded number of visible rows, while wofi/rofi provide their own scrollable menu views.
 
 ## Commands
 
@@ -62,14 +63,14 @@ Minimized-window metadata is kept in:
 
 Core:
 
-- Hyprland / hyprctl
-- jq
+- Hyprland / `hyprctl`
+- `jq`
 
 Picker:
 
-- fuzzel, wofi, or rofi-wayland / rofi
+- `fuzzel`, `wofi`, or `rofi-wayland` / `rofi`
 
-Miniland uses Hyprland's named special workspaces for the hidden window shelf and targeted movetoworkspacesilent operations for restoration.
+Miniland uses Hyprland's named special workspaces for the hidden window shelf and targeted window moves for restoration.
 
 ## License
 
