@@ -1,7 +1,7 @@
 # Miniland
 
 Miniland is a tiny Hyprland utility that adds a familiar **minimize window** workflow using a named special workspace.
-
+PS: If you have a better name, srsly let me know -_-
 ## Install
 
 Run the installer from a cloned repository:
