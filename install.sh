@@ -15,6 +15,7 @@ HYPR_CONFIG_VALUE="$(printenv HYPRLAND_CONFIG 2>/dev/null || true)"
 
 MINILAND_CONF="$HYPR_DIR/miniland.conf"
 MINILAND_LUA="$HYPR_DIR/miniland.lua"
+MINILAND_REQUIRE="${MINILAND_LUA%.lua}"
 INSTALL_BIN="$BIN_DIR/miniland"
 TTY="/dev/tty"
 
@@ -290,13 +291,13 @@ ensure_lua_require() {
         if grep -Eq "^[[:space:]]*require[[:space:]]*\\([[:space:]]*[\"']miniland[\"'][[:space:]]*\\)[[:space:]]*$" "$HYPR_CONF"; then
             say "Miniland is already required by Hyprland."
         else
-            printf '\n-- Miniland\nrequire("miniland")\n' >> "$HYPR_CONF"
+            printf '\n-- Miniland\nrequire("%s")\n' "$MINILAND_REQUIRE" >> "$HYPR_CONF"
             say "Added Miniland require to $HYPR_CONF"
         fi
     else
         cat > "$HYPR_CONF" <<EOF
 -- Hyprland Lua configuration
-require("miniland")
+require("$MINILAND_REQUIRE")
 EOF
         warn "Hyprland Lua config was not found, so $HYPR_CONF was created."
     fi
