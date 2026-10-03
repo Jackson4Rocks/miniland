@@ -287,7 +287,7 @@ cleanup_legacy_lua_sources() {
 
 ensure_lua_require() {
     if [ -f "$HYPR_CONF" ]; then
-        if grep -Eq '^[[:space:]]*require[[:space:]]*\([[:space:]]*["'"']miniland["'"'][[:space:]]*\)[[:space:]]*$' "$HYPR_CONF"; then
+        if grep -Eq "^[[:space:]]*require[[:space:]]*\\([[:space:]]*[\"']miniland[\"'][[:space:]]*\\)[[:space:]]*$" "$HYPR_CONF"; then
             say "Miniland is already required by Hyprland."
         else
             printf '\n-- Miniland\nrequire("miniland")\n' >> "$HYPR_CONF"
