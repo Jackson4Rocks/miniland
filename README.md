@@ -1,43 +1,75 @@
 # Miniland
 
-Miniland is a tiny Hyprland utility that adds a familiar **minimize window** workflow using a named special workspace.
-PS: If you have a better name, srsly let me know -_-
+Miniland adds a familiar minimize-window workflow to Hyprland using a named special workspace.
+
 ## Install
 
-Run the installer from a cloned repository:
+Clone the repository and run:
 
     sh install.sh
 
-Or download and run it directly:
+Or run the installer directly:
 
     curl -fsSL https://raw.githubusercontent.com/Jackson4Rocks/miniland/main/install.sh | sh
 
-The installer guides you through your keybinds. You can type bindings naturally, for example:
+The installer is interactive and lets you choose the keybinds. Type combinations naturally:
 
     SUPER + M
     SUPER + SHIFT + M
-    ALT + F9
+    CTRL + ALT + M
 
-It creates a small Hyprland config at ~/.config/hypr/miniland.conf and sources it from hyprland.conf.
+Defaults:
+
+- Minimize: SUPER + M
+- Picker: SUPER + SHIFT + M
+- Shelf: SUPER + ALT + M
+
+Run the installer again to change them.
+
+## Miniland picker
+
+Press the picker binding or run:
+
+    miniland picker
+
+The picker opens a searchable graphical menu containing every minimized window. Each entry includes the application/class, window title, PID, and original workspace.
+
+Select a window and Miniland moves that exact window to the currently active Hyprland workspace and focuses it.
+
+The menu is scrollable for large lists and uses the first available backend:
+
+1. fuzzel
+2. wofi
+3. rofi / rofi-wayland
+
+Install one of those separately when no picker backend is detected.
 
 ## Commands
 
     miniland minimize
+    miniland picker
     miniland restore-last
     miniland restore N
     miniland restore-all
     miniland list
     miniland toggle-shelf
-    miniland toggle
 
-Minimized windows are moved to special:miniland, while Miniland records the original workspace so the window can be restored to where it came from.
+Minimized-window metadata is kept in:
+
+    ~/.local/state/miniland/state.json
 
 ## Dependencies
 
-Miniland needs:
+Core:
 
 - Hyprland / hyprctl
 - jq
+
+Picker:
+
+- fuzzel, wofi, or rofi-wayland / rofi
+
+Miniland uses Hyprland's named special workspaces for the hidden window shelf and targeted movetoworkspacesilent operations for restoration.
 
 ## License
 
