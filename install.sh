@@ -291,7 +291,7 @@ ensure_lua_require() {
             say "Miniland is already required by Hyprland."
         else
             printf '\n-- Miniland\nrequire("miniland")\n' >> "$HYPR_CONF"
-            say "Added require("miniland") to $HYPR_CONF"
+            say "Added Miniland require to $HYPR_CONF"
         fi
     else
         cat > "$HYPR_CONF" <<EOF
@@ -480,7 +480,7 @@ if command -v hyprctl >/dev/null 2>&1; then
         if [ "$HYPR_MODE" = "lua" ]; then
             printf '%s\n' "Lua config: $MINILAND_LUA"
             printf '%s\n' "Required by:  $HYPR_CONF"
-            printf '%s\n' "Try: hyprctl binds -j | jq '.[] | select(.description | test("Miniland"))'"
+            printf '%s\n' "Try: hyprctl binds -j | jq '.[] | select(.description | contains("Miniland"))'"
         else
             printf '%s\n' "Run: hyprctl binds | grep miniland"
         fi
