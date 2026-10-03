@@ -271,6 +271,7 @@ minimize_bind="SUPER|M"
 picker_bind="SUPER SHIFT|N"
 shelf_bind="SUPER ALT|M"
 keep=0
+choice="C"
 
 EXISTING_CONFIG="$(config_for_existing)"
 
