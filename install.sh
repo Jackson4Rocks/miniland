@@ -469,8 +469,7 @@ if command -v hyprctl >/dev/null 2>&1; then
         registered="$(hyprctl binds 2>/dev/null | grep -F "$INSTALL_BIN" || true)"
     else
         registered="$(hyprctl binds 2>/dev/null |
-            grep -F -e "Minimize focused window" -e "Open Miniland picker" -e "Show or hide Miniland shelf" |
-            grep -F "$INSTALL_BIN" || true)"
+            grep -F -e "Minimize focused window" -e "Open Miniland picker" -e "Show or hide Miniland shelf" || true)"
     fi
 
     if [ -n "$registered" ]; then
