@@ -394,6 +394,34 @@ EOF
     fi
 fi
 
+register_legacy_bind() {
+    parsed="$1"
+    command_name="$2"
+
+    mods="$(printf '%s' "$parsed" | cut -d'|' -f1 | tr ' ' '_')"
+    key="$(printf '%s' "$parsed" | cut -d'|' -f2)"
+
+    if [ -n "$mods" ]; then
+        hyprctl keyword bind "$mods,$key,exec,$INSTALL_BIN $command_name" >/dev/null 2>&1
+    else
+        hyprctl keyword bind ",$key,exec,$INSTALL_BIN $command_name" >/dev/null 2>&1
+    fi
+}
+
+register_runtime_binds() {
+    [ "$HYPR_MODE" = "legacy" ] || return 0
+
+    hyprctl keyword unbind SUPER,M >/dev/null 2>&1 || true
+    hyprctl keyword unbind SUPER_SHIFT,N >/dev/null 2>&1 || true
+    hyprctl keyword unbind SUPER_ALT,M >/dev/null 2>&1 || true
+
+    register_legacy_bind "$minimize_bind" minimize || return 1
+    register_legacy_bind "$picker_bind" picker || return 1
+    register_legacy_bind "$shelf_bind" toggle-shelf || return 1
+
+    return 0
+}
+
 if command -v hyprctl >/dev/null 2>&1; then
     reload_output="$(hyprctl reload 2>&1 || true)"
 
@@ -412,13 +440,20 @@ if command -v hyprctl >/dev/null 2>&1; then
         printf '%s\n' "$errors" >&2
     fi
 
-    registered="$(hyprctl binds 2>/dev/null | grep -F "$INSTALL_BIN" || true)"
-    if [ -n "$registered" ]; then
-        say "Hyprland reports the Miniland binds as registered."
+    if register_runtime_binds; then
+        say "Registered Miniland binds directly with Hyprland."
     else
-        warn "Miniland binds were not found in hyprctl binds after reload."
-        printf '%s\n' "Check: hyprctl binds | grep miniland"
+        warn "Hyprland rejected the runtime Miniland binds."
     fi
+
+    binds_json="$(hyprctl binds -j 2>/dev/null || true)"
+    if printf '%s' "$binds_json" | jq -e --arg path "$INSTALL_BIN"         'any(.[]; (.dispatcher == "exec" and (.arg // "" | contains($path))))' >/dev/null 2>&1; then
+        say "Verified Miniland binds through hyprctl binds -j."
+    else
+        warn "Miniland was not found in hyprctl binds -j."
+        printf '%s
+' "Run: hyprctl binds -j | jq ''.[] | select(.dispatcher == \"exec\")''"
+    fifi
 fi
 
 printf '\n'
