@@ -90,6 +90,16 @@ dispatch_focus_window() {
     fi
 }
 
+dispatch_focus_workspace() {
+    workspace="$1"
+
+    if [ "$HYPR_LUA" -eq 1 ]; then
+        hyprctl dispatch "hl.dsp.focus({ workspace = \"$workspace\" })"
+    else
+        hyprctl dispatch workspace "$workspace"
+    fi
+}
+
 dispatch_toggle_special() {
     name="$1"
 
@@ -184,6 +194,12 @@ restore_to() {
 
     if [ -n "$current_id" ] && [ "$current_id" != "$workspace" ]; then
         die "could not restore the window to workspace $workspace"
+    fi
+
+    active="$(active_workspace_id)"
+    if [ -n "$active" ] && [ "$active" != "$workspace" ]; then
+        dispatch_focus_workspace "$workspace" >/dev/null 2>&1 || true
+        sleep 0.2
     fi
 
     dispatch_focus_window "$address" >/dev/null 2>&1 || true

@@ -1,81 +1,115 @@
 # Miniland
 
-Miniland adds a familiar minimize-window workflow to Hyprland using a named special workspace.
+Minimize windows on Hyprland without losing them.
 
-## Install
+Press a key and the focused window is parked on a hidden shelf. Press another
+key and it comes back — still running, still where you left it.
 
-Clone the repository and run:
+## Quick start
 
     sh install.sh
 
-Or run the installer directly:
+or, if you don't have the repo yet:
 
     curl -fsSL https://raw.githubusercontent.com/Jackson4Rocks/miniland/main/install.sh | sh
 
-The installer detects the Hyprland configuration style it is running with:
+The installer walks you through the whole thing:
 
-- Legacy Hyprland 0.54 and earlier style: `hyprland.conf` / `bind = ...`
-- Hyprland 0.55+ Lua style: `hyprland.lua` / `hl.bind(...)`
+1. asks which keys you want (all of them editable)
+2. installs the `miniland` command to `~/.local/bin`
+3. wires the keybinds into your Hyprland config
+4. reloads Hyprland and checks that the binds really registered
 
-On Hyprland 0.55 and newer, Miniland drives the compositor through the Lua
-dispatcher API (`hl.dsp.*`) and installs a `miniland.lua` module that your
-`hyprland.lua` requires. Older versions keep using the classic `hyprland.conf`
-and `bind = ...` syntax.
+No root, no daemons, nothing to clean up later.
 
-### Recommended defaults
+## Keybinds
 
-- Minimize: `SUPER + M`
-- Picker: `SUPER + SHIFT + N`
-- Shelf: `SUPER + ALT + M`
+| Key | Action | What happens |
+| --- | --- | --- |
+| `SUPER + M` | Minimize | The focused window disappears onto the shelf |
+| `SUPER + SHIFT + N` | Picker | Opens a searchable menu of everything you minimized |
+| `SUPER + ALT + M` | Shelf | Shows or hides the shelf itself |
+| `SUPER + R` | Restore | Brings back the window you minimized most recently |
 
-During setup you can keep your current bindings, use the recommended defaults, or customize them.
+Every key is editable. The installer asks, and you can re-run it whenever you
+want to change them. It also warns you if a combination is already used by
+another bind in your Hyprland config.
 
-Bindings are written using the syntax required by the detected Hyprland config. In legacy config, combined modifiers are emitted as `SUPER_SHIFT`, not `SUPER SHIFT`.
+## Using it
 
-## Miniland picker
-
-Press `SUPER + SHIFT + N` by default, or run:
-
-    miniland picker
-
-The picker opens a searchable graphical menu containing every minimized window. Entries include the application/class, title, PID, and original workspace.
-
-Selecting a window restores that exact window onto the currently active Hyprland workspace and focuses it.
-
-The picker is scrollable for large lists and automatically uses the first available backend:
-
-1. fuzzel
-2. wofi
-3. rofi / rofi-wayland
-
-Fuzzel is used in dmenu mode with a bounded number of visible rows, while wofi/rofi provide their own scrollable menu views.
+- **Minimize** hides the focused window on a shelf that is out of the way. The
+  app keeps running, so music and downloads are not interrupted.
+- **Restore** brings the most recently minimized window back, on the workspace
+  it came from, and focuses it.
+- **Picker** shows every minimized window in a searchable list. Pick one and it
+  opens on the workspace you are on right now.
+- **Shelf** shows the hidden workspace itself, so you can see what is parked
+  there.
 
 ## Commands
 
-    miniland minimize
-    miniland picker
-    miniland restore-last
-    miniland restore N
-    miniland restore-all
-    miniland list
-    miniland toggle-shelf
+    miniland minimize       # hide the focused window
+    miniland picker         # searchable menu of minimized windows
+    miniland restore-last   # bring back the most recently minimized window
+    miniland restore 2      # bring back the 2nd window in the list
+    miniland restore-all    # bring back everything
+    miniland list           # show what is minimized right now
+    miniland toggle-shelf   # show or hide the shelf
 
-Minimized-window metadata is kept in:
+## Requirements
+
+- Hyprland (works on 0.55+ Lua configs and older `hyprland.conf` setups)
+- `jq`
+- A picker for the menu: `fuzzel`, `wofi` or `rofi` (only the picker needs it)
+
+## How it works
+
+Miniland parks windows on a Hyprland special workspace called
+`special:miniland`. That is a real workspace, so windows keep their size,
+position and running state — and Hyprland keeps drawing the shelf when you
+toggle it into view.
+
+Which windows are minimized is remembered in:
 
     ~/.local/state/miniland/state.json
 
-## Dependencies
+On Hyprland 0.55 and newer the config is Lua: the installer writes
+`miniland.lua` next to your other config files and adds `require("miniland")`
+to your `hyprland.lua`. Older versions get a `miniland.conf` with plain
+`bind = ...` lines instead.
 
-Core:
+## Troubleshooting
 
-- Hyprland / `hyprctl`
-- `jq`
+**A keybind does nothing**
 
-Picker:
+    hyprctl binds | grep -i miniland
+    hyprctl configerrors
 
-- `fuzzel`, `wofi`, or `rofi-wayland` / `rofi`
+The first command should list your Miniland binds, the second should be empty.
+Re-running `sh install.sh` repairs a config that was never wired up.
 
-Miniland uses Hyprland's named special workspaces for the hidden window shelf and targeted window moves for restoration.
+**Nothing happens when I minimize**
+
+Check `hyprctl version`. On 0.55+ your config has to be Lua, and Miniland has
+to be required from it — look for `require("miniland")` in your
+`hyprland.lua`.
+
+**The picker does not open**
+
+Install one of `fuzzel`, `wofi` or `rofi`. `miniland picker` tells you when it
+cannot find any of them.
+
+**I want different keys**
+
+Re-run `sh install.sh` and choose *customize*.
+
+## Uninstall
+
+    rm ~/.local/bin/miniland
+    rm ~/.config/hypr/miniland.lua      # or miniland.conf on older Hyprland
+    rm -rf ~/.local/state/miniland
+
+Then drop the `require("miniland")` line from your `hyprland.lua`.
 
 ## License
 

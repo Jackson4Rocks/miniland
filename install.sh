@@ -262,6 +262,7 @@ write_miniland_config() {
 $(lua_binding_line "$minimize_bind" minimize "Minimize focused window")
 $(lua_binding_line "$picker_bind" picker "Open Miniland picker")
 $(lua_binding_line "$shelf_bind" toggle-shelf "Show or hide Miniland shelf")
+$(lua_binding_line "$restore_bind" restore-last "Restore last minimized window")
 EOF
     else
         cat > "$MINILAND_CONF" <<EOF
@@ -271,6 +272,7 @@ EOF
 $(legacy_binding_line "$minimize_bind" minimize)
 $(legacy_binding_line "$picker_bind" picker)
 $(legacy_binding_line "$shelf_bind" toggle-shelf)
+$(legacy_binding_line "$restore_bind" restore-last)
 EOF
     fi
 }
@@ -379,6 +381,7 @@ printf '%s\n\n' "No root access is required."
 minimize_bind="SUPER|M"
 picker_bind="SUPER SHIFT|N"
 shelf_bind="SUPER ALT|M"
+restore_bind="SUPER|R"
 keep=0
 choice="C"
 
@@ -388,10 +391,12 @@ if [ -f "$EXISTING_CONFIG" ]; then
     old_minimize="$(extract_bind minimize || true)"
     old_picker="$(extract_bind picker || true)"
     old_shelf="$(extract_bind toggle-shelf || true)"
+    old_restore="$(extract_bind restore-last || true)"
 
     [ -n "$old_minimize" ] || old_minimize="$minimize_bind"
     [ -n "$old_picker" ] || old_picker="$picker_bind"
     [ -n "$old_shelf" ] || old_shelf="$shelf_bind"
+    [ -n "$old_restore" ] || old_restore="$restore_bind"
 
     say "Existing Miniland configuration found."
     prompt "Use recommended defaults (picker = SUPER + SHIFT + N), keep current, or customize? [D/k/c]: "
@@ -402,6 +407,7 @@ if [ -f "$EXISTING_CONFIG" ]; then
             minimize_bind="SUPER|M"
             picker_bind="SUPER SHIFT|N"
             shelf_bind="SUPER ALT|M"
+            restore_bind="SUPER|R"
             keep=0
             choice="D"
             ;;
@@ -409,12 +415,14 @@ if [ -f "$EXISTING_CONFIG" ]; then
             minimize_bind="$old_minimize"
             picker_bind="$old_picker"
             shelf_bind="$old_shelf"
+            restore_bind="$old_restore"
             keep=1
             ;;
         C)
             minimize_bind="SUPER|M"
             picker_bind="SUPER SHIFT|N"
             shelf_bind="SUPER ALT|M"
+            restore_bind="SUPER|R"
             keep=0
             choice="C"
             ;;
@@ -432,10 +440,14 @@ if [ "$keep" -eq 0 ] && [ "$choice" = "C" ]; then
     minimize_bind="$(ask_bind "Minimize focused window" "$minimize_bind")"
     picker_bind="$(ask_bind "Open Miniland picker" "$picker_bind")"
     shelf_bind="$(ask_bind "Show/hide Miniland shelf" "$shelf_bind")"
+    restore_bind="$(ask_bind "Restore last minimized window" "$restore_bind")"
 
     if [ "$minimize_bind" = "$picker_bind" ] ||
        [ "$minimize_bind" = "$shelf_bind" ] ||
-       [ "$picker_bind" = "$shelf_bind" ]; then
+       [ "$minimize_bind" = "$restore_bind" ] ||
+       [ "$picker_bind" = "$shelf_bind" ] ||
+       [ "$picker_bind" = "$restore_bind" ] ||
+       [ "$shelf_bind" = "$restore_bind" ]; then
         die "two Miniland actions use the same keybind; please choose different keybinds"
     fi
 
@@ -443,6 +455,7 @@ if [ "$keep" -eq 0 ] && [ "$choice" = "C" ]; then
     printf '  %-8s %s\n' "Minimize" "$(format_bind "$minimize_bind")"
     printf '  %-8s %s\n' "Picker" "$(format_bind "$picker_bind")"
     printf '  %-8s %s\n' "Shelf" "$(format_bind "$shelf_bind")"
+    printf '  %-8s %s\n' "Restore" "$(format_bind "$restore_bind")"
 
     prompt "Apply these bindings? [Y/change/cancel]: "
     read_tty confirm || confirm="Y"
@@ -454,12 +467,68 @@ if [ "$keep" -eq 0 ] && [ "$choice" = "C" ]; then
             minimize_bind="$(ask_bind "Minimize focused window" "$minimize_bind")"
             picker_bind="$(ask_bind "Open Miniland picker" "$picker_bind")"
             shelf_bind="$(ask_bind "Show/hide Miniland shelf" "$shelf_bind")"
+            restore_bind="$(ask_bind "Restore last minimized window" "$restore_bind")"
             ;;
         *)
             die "installation cancelled"
             ;;
     esac
 fi
+
+check_bind_conflicts() {
+    label="$1"
+    parsed="$2"
+
+    mods="$(printf '%s' "$parsed" | cut -d'|' -f1)"
+    key="$(printf '%s' "$parsed" | cut -d'|' -f2)"
+
+    [ -n "$key" ] || return 0
+    command -v hyprctl >/dev/null 2>&1 || return 0
+
+    conflict="$(hyprctl binds 2>/dev/null | awk -v want_mods="$mods" -v want_key="$key" '
+        function mods_of(mask,   s) {
+            s = ""
+            if (int(mask / 64) % 2) s = s "SUPER+"
+            if (int(mask / 8) % 2) s = s "ALT+"
+            if (int(mask / 4) % 2) s = s "CTRL+"
+            if (int(mask / 2) % 2) s = s "CAPS+"
+            if (mask % 2) s = s "SHIFT+"
+            return s
+        }
+        function canon(m,   out) {
+            out = ""
+            if (index(" " m " ", " SUPER ")) out = out "SUPER+"
+            if (index(" " m " ", " ALT ")) out = out "ALT+"
+            if (index(" " m " ", " CTRL ")) out = out "CTRL+"
+            if (index(" " m " ", " CAPSLOCK ")) out = out "CAPS+"
+            if (index(" " m " ", " SHIFT ")) out = out "SHIFT+"
+            return out
+        }
+        function flush(   d) {
+            if (key == "") return
+            if (desc ~ /[Mm]iniland/ || desc ~ /Minimize focused window/) return
+            if (toupper(key) != toupper(want_key)) return
+            if (mods_of(modmask) != canon(want_mods)) return
+            d = (desc == "" ? "an existing bind" : "\"" desc "\"")
+            print d
+        }
+        /^bind$/ { flush(); modmask = 0; key = ""; desc = ""; next }
+        /modmask:/ { modmask = $2; next }
+        /key:/ { key = $2; next }
+        /description:/ { desc = ""; for (i = 2; i <= NF; i++) desc = desc (i > 2 ? " " : "") $i; next }
+        END { flush() }
+    ' | head -n 1)"
+
+    if [ -n "$conflict" ]; then
+        warn "$label ($(format_bind "$parsed")) is already used by $conflict. Pick a different keybind."
+    fi
+}
+
+printf '\n'
+check_bind_conflicts "Minimize" "$minimize_bind"
+check_bind_conflicts "Picker" "$picker_bind"
+check_bind_conflicts "Shelf" "$shelf_bind"
+check_bind_conflicts "Restore" "$restore_bind"
 
 mkdir -p "$BIN_DIR" "$HYPR_DIR"
 
@@ -530,6 +599,7 @@ fi
 printf '%s\n' "Minimize:   $(format_bind "$minimize_bind")"
 printf '%s\n' "Picker:     $(format_bind "$picker_bind")"
 printf '%s\n' "Shelf:      $(format_bind "$shelf_bind")"
+printf '%s\n' "Restore:    $(format_bind "$restore_bind")"
 printf '%s\n' "Picker default: SUPER + SHIFT + N"
 
 if command -v fuzzel >/dev/null 2>&1 ||
