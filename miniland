@@ -19,9 +19,86 @@ need jq
 mkdir -p "$STATE_DIR"
 [ -f "$STATE_FILE" ] || printf '%s\n' '[]' > "$STATE_FILE"
 
+# Hyprland 0.55+ evaluates hyprctl dispatch payloads as Lua, so the classic
+# textual dispatcher syntax is rejected. Detect which dialect to speak.
+hypr_uses_lua() {
+    version_line="$(hyprctl version 2>/dev/null | sed -n '1p' || true)"
+    version_numbers="$(printf '%s\n' "$version_line" |
+        sed -n 's/^Hyprland[[:space:]][[:space:]]*\([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2/p')"
+
+    if [ -z "$version_numbers" ]; then
+        return 1
+    fi
+
+    major="${version_numbers%% *}"
+    minor="${version_numbers##* }"
+
+    if [ "$major" -gt 0 ]; then
+        return 0
+    fi
+
+    if [ "$major" -eq 0 ] && [ "$minor" -ge 55 ]; then
+        return 0
+    fi
+
+    return 1
+}
+
+if hypr_uses_lua; then
+    HYPR_LUA=1
+else
+    HYPR_LUA=0
+fi
+
 clients_json() { hyprctl clients -j; }
 active_window() { hyprctl activewindow -j; }
-active_workspace_id() { hyprctl activeworkspace -j | jq -r '.id'; }
+
+active_workspace_id() {
+    hyprctl activeworkspace -j |
+        jq -r 'if .id == null then "" else (.id | tostring) end'
+}
+
+window_workspace_name() {
+    clients_json |
+        jq -r --arg a "$1" 'map(select(.address == $a)) | .[0].workspace.name // empty'
+}
+
+window_workspace_id() {
+    clients_json |
+        jq -r --arg a "$1" 'map(select(.address == $a)) | .[0].workspace.id // empty'
+}
+
+dispatch_move_to_workspace() {
+    address="$1"
+    workspace="$2"
+
+    if [ "$HYPR_LUA" -eq 1 ]; then
+        hyprctl dispatch \
+            "hl.dsp.window.move({ window = \"address:$address\", workspace = \"$workspace\", follow = false })"
+    else
+        hyprctl dispatch movetoworkspacesilent "$workspace,address:$address"
+    fi
+}
+
+dispatch_focus_window() {
+    address="$1"
+
+    if [ "$HYPR_LUA" -eq 1 ]; then
+        hyprctl dispatch "hl.dsp.focus({ window = \"address:$address\" })"
+    else
+        hyprctl dispatch focuswindow "address:$address"
+    fi
+}
+
+dispatch_toggle_special() {
+    name="$1"
+
+    if [ "$HYPR_LUA" -eq 1 ]; then
+        hyprctl dispatch "hl.dsp.workspace.toggle_special(\"$name\")"
+    else
+        hyprctl dispatch togglespecialworkspace "$name"
+    fi
+}
 
 is_alive() {
     clients_json | jq -e --arg a "$1" 'any(.[]; .address == $a)' >/dev/null 2>&1
@@ -91,8 +168,25 @@ restore_to() {
 
     [ -n "$workspace" ] || die "target workspace is invalid"
 
-    hyprctl dispatch movetoworkspacesilent "id:$workspace,address:$address" >/dev/null
-    hyprctl dispatch focuswindow "address:$address" >/dev/null 2>&1 || true
+    dispatch_move_to_workspace "$address" "$workspace" >/dev/null 2>&1 || true
+    sleep 0.2
+
+    current_name="$(window_workspace_name "$address")"
+    current_id="$(window_workspace_id "$address")"
+
+    if [ -z "$current_name" ]; then
+        die "that window no longer exists"
+    fi
+
+    if [ "$current_name" = "$SPECIAL_WORKSPACE" ]; then
+        die "could not restore the window to workspace $workspace"
+    fi
+
+    if [ -n "$current_id" ] && [ "$current_id" != "$workspace" ]; then
+        die "could not restore the window to workspace $workspace"
+    fi
+
+    dispatch_focus_window "$address" >/dev/null 2>&1 || true
     remove_state "$address"
 }
 
@@ -129,8 +223,13 @@ minimize() {
       "$(printf '%s' "$window" | jq -r '.class // .initialClass // empty')" \
       "$(printf '%s' "$window" | jq -r '.pid // empty')"
 
-    hyprctl dispatch movetoworkspacesilent \
-        "$SPECIAL_WORKSPACE,address:$address" >/dev/null
+    dispatch_move_to_workspace "$address" "$SPECIAL_WORKSPACE" >/dev/null 2>&1 || true
+    sleep 0.2
+
+    if [ "$(window_workspace_name "$address")" != "$SPECIAL_WORKSPACE" ]; then
+        remove_state "$address"
+        die "could not move the window to the Miniland shelf"
+    fi
 }
 
 restore_last() {
@@ -247,13 +346,18 @@ picker() {
         ''|*[!0-9]*) die "invalid picker selection" ;;
     esac
 
-    target="$(active_workspace_id)"
-    [ -n "$target" ] || die "could not determine the current workspace"
-
     address="$(jq -r --argjson i "$index" \
         '.[($i-1)].address // empty' "$STATE_FILE")"
 
     [ -n "$address" ] || die "selected window no longer exists"
+
+    target="$(active_workspace_id)"
+    if [ -z "$target" ]; then
+        target="$(jq -r --argjson i "$index" \
+            '.[($i-1)].workspace_id // empty' "$STATE_FILE")"
+    fi
+
+    [ -n "$target" ] || die "could not determine the current workspace"
 
     restore_to "$address" "$target"
 }
@@ -306,7 +410,7 @@ case "$cmd" in
         ;;
     restore-all) restore_all ;;
     list) list_windows ;;
-    toggle-shelf) hyprctl dispatch togglespecialworkspace miniland >/dev/null ;;
+    toggle-shelf) dispatch_toggle_special "miniland" >/dev/null ;;
     help|-h|--help) usage ;;
     *) usage; exit 1 ;;
 esac

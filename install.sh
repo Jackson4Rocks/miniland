@@ -9,9 +9,15 @@ XDG_BIN_HOME_VALUE="$(printenv XDG_BIN_HOME 2>/dev/null || true)"
 [ -n "$XDG_BIN_HOME_VALUE" ] && BIN_DIR="$XDG_BIN_HOME_VALUE"
 
 HYPR_DIR="$HOME/.config/hypr"
-HYPR_CONF="$HYPR_DIR/hyprland.conf"
 HYPR_CONFIG_VALUE="$(printenv HYPRLAND_CONFIG 2>/dev/null || true)"
-[ -n "$HYPR_CONFIG_VALUE" ] && HYPR_CONF="$HYPR_CONFIG_VALUE"
+
+if [ -n "$HYPR_CONFIG_VALUE" ]; then
+    HYPR_CONF="$HYPR_CONFIG_VALUE"
+elif [ -f "$HYPR_DIR/hyprland.lua" ]; then
+    HYPR_CONF="$HYPR_DIR/hyprland.lua"
+else
+    HYPR_CONF="$HYPR_DIR/hyprland.conf"
+fi
 
 MINILAND_CONF="$HYPR_DIR/miniland.conf"
 MINILAND_LUA="$HYPR_DIR/miniland.lua"
@@ -147,26 +153,25 @@ detect_hypr_mode() {
     if command -v hyprctl >/dev/null 2>&1; then
         version_line="$(hyprctl version 2>/dev/null | sed -n '1p' || true)"
         version_numbers="$(printf '%s\n' "$version_line" |
-            sed -n 's/^Hyprland[[:space:]]\+\([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2/p')"
+            sed -n 's/^Hyprland[[:space:]][[:space:]]*\([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2/p')"
 
         if [ -n "$version_numbers" ]; then
             set -- $version_numbers
             major="$1"
             minor="$2"
 
-            if [ "$major" -gt 0 ] ||
-               [ "$major" -eq 0 ] && [ "$minor" -ge 55 ]; then
+            if [ "$major" -gt 0 ]; then
                 HYPR_MODE="lua"
+                [ -n "$HYPR_CONFIG_VALUE" ] || HYPR_CONF="$HYPR_DIR/hyprland.lua"
+                return 0
+            fi
+
+            if [ "$major" -eq 0 ] && [ "$minor" -ge 55 ]; then
+                HYPR_MODE="lua"
+                [ -n "$HYPR_CONFIG_VALUE" ] || HYPR_CONF="$HYPR_DIR/hyprland.lua"
                 return 0
             fi
         fi
-    fi
-
-    if [ -z "$HYPR_CONFIG_VALUE" ] &&
-       [ ! -f "$HYPR_DIR/hyprland.conf" ] &&
-       [ -f "$HYPR_DIR/hyprland.lua" ]; then
-        HYPR_CONF="$HYPR_DIR/hyprland.lua"
-        HYPR_MODE="lua"
     fi
 }
 
@@ -286,21 +291,45 @@ cleanup_legacy_lua_sources() {
     say "Removed old Miniland legacy source lines from $HYPR_CONF"
 }
 
+miniland_require_arg() {
+    case "$HYPR_CONF" in
+        "$HYPR_DIR"/*) printf '%s\n' "miniland" ;;
+        *) printf '%s\n' "$MINILAND_REQUIRE" ;;
+    esac
+}
+
 ensure_lua_require() {
+    require_arg="$(miniland_require_arg)"
+
     if [ -f "$HYPR_CONF" ]; then
-        if grep -Eq "^[[:space:]]*require[[:space:]]*\\([[:space:]]*[\"']miniland[\"'][[:space:]]*\\)[[:space:]]*$" "$HYPR_CONF"; then
+        if grep -Eq '^[[:space:]]*require[[:space:]]*\(?[[:space:]]*["'"'"'][^"'"'"']*miniland["'"'"'][[:space:]]*\)?[[:space:]]*$' "$HYPR_CONF"; then
             say "Miniland is already required by Hyprland."
         else
-            printf '\n-- Miniland\nrequire("%s")\n' "$MINILAND_REQUIRE" >> "$HYPR_CONF"
+            printf '\n-- Miniland\nrequire("%s")\n' "$require_arg" >> "$HYPR_CONF"
             say "Added Miniland require to $HYPR_CONF"
         fi
     else
         cat > "$HYPR_CONF" <<EOF
 -- Hyprland Lua configuration
-require("$MINILAND_REQUIRE")
+require("$require_arg")
 EOF
         warn "Hyprland Lua config was not found, so $HYPR_CONF was created."
     fi
+}
+
+cleanup_stray_legacy_conf() {
+    [ "$HYPR_MODE" = "lua" ] || return 0
+
+    stray="$HYPR_DIR/hyprland.conf"
+    [ -f "$stray" ] || return 0
+    [ "$stray" != "$HYPR_CONF" ] || return 0
+
+    if grep -Evq '^[[:space:]]*(--.*)?$|^[[:space:]]*require[[:space:]]*\(?[[:space:]]*["'"'"'][^"'"'"']*miniland["'"'"'][[:space:]]*\)?[[:space:]]*$' "$stray"; then
+        return 0
+    fi
+
+    rm -f "$stray"
+    say "Removed the unused $stray left behind by an earlier Miniland install."
 }
 
 ensure_legacy_source() {
@@ -444,6 +473,7 @@ write_miniland_config
 if [ "$HYPR_MODE" = "lua" ]; then
     cleanup_legacy_lua_sources
     ensure_lua_require
+    cleanup_stray_legacy_conf
 else
     ensure_legacy_source
 fi

@@ -17,6 +17,11 @@ The installer detects the Hyprland configuration style it is running with:
 - Legacy Hyprland 0.54 and earlier style: `hyprland.conf` / `bind = ...`
 - Hyprland 0.55+ Lua style: `hyprland.lua` / `hl.bind(...)`
 
+On Hyprland 0.55 and newer, Miniland drives the compositor through the Lua
+dispatcher API (`hl.dsp.*`) and installs a `miniland.lua` module that your
+`hyprland.lua` requires. Older versions keep using the classic `hyprland.conf`
+and `bind = ...` syntax.
+
 ### Recommended defaults
 
 - Minimize: `SUPER + M`
