@@ -42,7 +42,7 @@ Miniland comes with suggested default shortcuts, but **you are not locked into t
 | `SUPER + M` | Minimize | Moves the focused window to the hidden shelf. |
 | `SUPER + SHIFT + N` | Picker | Opens a searchable list of minimized windows. |
 | `SUPER + ALT + M` | Toggle Shelf | Shows or hides the hidden shelf. |
-| `SUPER + R` | Restore | Restores the most recently minimized window. |
+| `SUPER + SHIFT + R` | Restore | Restores the most recently minimized window. |
 
 ### Customize Your Keybinds
 
